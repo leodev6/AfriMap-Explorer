@@ -21,7 +21,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final countries = ref.watch(filteredCountriesProvider);
-    final asyncInit = ref.watch(dataInitializerProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -33,10 +32,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      body: asyncInit.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text('Erreur: $err')),
-        data: (_) => Column(
+      body: Column(
           children: [
             Padding(
               padding: const EdgeInsets.all(16),
@@ -71,7 +67,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ],
         ),
-      ),
       bottomNavigationBar: _buildBottomNav(context),
     );
   }

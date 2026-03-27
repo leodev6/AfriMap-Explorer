@@ -37,6 +37,7 @@ class QuizResult extends Equatable {
   final int correctAnswers;
   final DateTime completedAt;
   final int score;
+  final String? deviceId;
 
   const QuizResult({
     required this.id,
@@ -45,6 +46,7 @@ class QuizResult extends Equatable {
     required this.correctAnswers,
     required this.completedAt,
     required this.score,
+    this.deviceId,
   });
 
   double get percentage => totalQuestions > 0
@@ -59,6 +61,7 @@ class QuizResult extends Equatable {
       'correct_answers': correctAnswers,
       'completed_at': completedAt.toIso8601String(),
       'score': score,
+      if (deviceId != null) 'device_id': deviceId,
     };
   }
 
@@ -70,6 +73,7 @@ class QuizResult extends Equatable {
       correctAnswers: map['correct_answers'] as int,
       completedAt: DateTime.parse(map['completed_at'] as String),
       score: map['score'] as int,
+      deviceId: map['device_id'] as String?,
     );
   }
 

@@ -18,14 +18,18 @@ final localDataSourceProvider = Provider<LocalDataSource>((ref) {
   return LocalDataSource(prefs);
 });
 
+final remoteDataSourceProvider = Provider<RemoteDataSource?>((ref) {
+  if (!SupabaseConfig.isConfigured) return null;
+  try {
+    return RemoteDataSource(Supabase.instance.client);
+  } catch (_) {
+    return null;
+  }
+});
+
 final countryRepositoryProvider = Provider<CountryRepository>((ref) {
   final local = ref.watch(localDataSourceProvider);
-  RemoteDataSource? remote;
-  if (SupabaseConfig.isConfigured) {
-    try {
-      remote = RemoteDataSource(Supabase.instance.client);
-    } catch (_) {}
-  }
+  final remote = ref.watch(remoteDataSourceProvider);
   return CountryRepository(local, remote);
 });
 
@@ -34,11 +38,13 @@ final quizRepositoryProvider = Provider<QuizRepository>((ref) {
   return QuizRepository(countryRepo);
 });
 
+// Initialisation des données au démarrage
 final dataInitializerProvider = FutureProvider<void>((ref) async {
   final repo = ref.watch(countryRepositoryProvider);
   await repo.initialize();
 });
 
+// Pays disponibles (dépend de l'initialisation)
 final countriesProvider = Provider<List<Country>>((ref) {
   ref.watch(dataInitializerProvider);
   return ref.watch(countryRepositoryProvider).countries;
@@ -48,31 +54,38 @@ final searchQueryProvider = StateProvider<String>((ref) => '');
 
 final filteredCountriesProvider = Provider<List<Country>>((ref) {
   final query = ref.watch(searchQueryProvider);
+  ref.watch(dataInitializerProvider); // attend l'init
   return ref.watch(countryRepositoryProvider).searchCountries(query);
 });
 
 final regionsByCountryProvider =
     Provider.family<List<Region>, String>((ref, countryId) {
+  ref.watch(dataInitializerProvider);
   return ref.watch(countryRepositoryProvider).getRegionsByCountry(countryId);
 });
 
 final languagesByCountryProvider =
     Provider.family<List<Language>, String>((ref, countryId) {
+  ref.watch(dataInitializerProvider);
   return ref.watch(countryRepositoryProvider).getLanguagesByCountry(countryId);
 });
 
 final languagesByRegionProvider =
     Provider.family<List<Language>, String>((ref, regionId) {
+  ref.watch(dataInitializerProvider);
   return ref.watch(countryRepositoryProvider).getLanguagesByRegion(regionId);
 });
 
 final islandsByCountryProvider =
     Provider.family<List<Island>, String>((ref, countryId) {
+  ref.watch(dataInitializerProvider);
   return ref.watch(countryRepositoryProvider).getIslandsByCountry(countryId);
 });
 
-// Progress providers
-final exploredCountriesProvider = StateNotifierProvider<ExploredCountriesNotifier, Set<String>>((ref) {
+// ============ Progress providers ============
+
+final exploredCountriesProvider =
+    StateNotifierProvider<ExploredCountriesNotifier, Set<String>>((ref) {
   final local = ref.watch(localDataSourceProvider);
   return ExploredCountriesNotifier(local);
 });
@@ -88,27 +101,37 @@ class ExploredCountriesNotifier extends StateNotifier<Set<String>> {
   }
 }
 
-final quizResultsProvider = StateNotifierProvider<QuizResultsNotifier, List<QuizResult>>((ref) {
+final quizResultsProvider =
+    StateNotifierProvider<QuizResultsNotifier, List<QuizResult>>((ref) {
   final local = ref.watch(localDataSourceProvider);
-  return QuizResultsNotifier(local);
+  final repo = ref.watch(countryRepositoryProvider);
+  return QuizResultsNotifier(local, repo);
 });
 
 class QuizResultsNotifier extends StateNotifier<List<QuizResult>> {
   final LocalDataSource _local;
+  final CountryRepository _repo;
 
-  QuizResultsNotifier(this._local) : super(_local.quizResults);
+  QuizResultsNotifier(this._local, this._repo) : super(_local.quizResults);
 
   void addResult(QuizResult result) {
+    // Sauvegarder localement
     _local.addQuizResult(result);
     state = [...state, result];
+
+    // Sauvegarder sur Supabase en arrière-plan
+    _repo.saveQuizResult(result);
   }
 
   int get totalQuizzes => state.length;
-  int get bestScore => state.isEmpty ? 0 : state.map((r) => r.score).reduce((a, b) => a > b ? a : b);
+  int get bestScore =>
+      state.isEmpty ? 0 : state.map((r) => r.score).reduce((a, b) => a > b ? a : b);
 }
 
-// Quiz state provider
-final quizStateProvider = StateNotifierProvider.autoDispose<QuizNotifier, QuizState>((ref) {
+// ============ Quiz state provider ============
+
+final quizStateProvider =
+    StateNotifierProvider.autoDispose<QuizNotifier, QuizState>((ref) {
   final quizRepo = ref.watch(quizRepositoryProvider);
   final resultsNotifier = ref.read(quizResultsProvider.notifier);
   return QuizNotifier(quizRepo, resultsNotifier);
@@ -140,9 +163,8 @@ class QuizNotifier extends StateNotifier<QuizState> {
 
     state = state.copyWith(
       userAnswers: newAnswers,
-      correctAnswers: isCorrect
-          ? state.correctAnswers + 1
-          : state.correctAnswers,
+      correctAnswers:
+          isCorrect ? state.correctAnswers + 1 : state.correctAnswers,
     );
   }
 

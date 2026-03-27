@@ -13,64 +13,101 @@ class CountryRepository {
   List<Island> _islands = [];
   List<RegionLanguage> _regionLanguages = [];
 
+  bool _initialized = false;
+  bool get isInitialized => _initialized;
+
   CountryRepository(this._local, [this._remote]);
 
   Future<void> initialize() async {
-    // Try loading from cache first
+    if (_initialized) return;
+
+    // 1. Charger depuis le cache local immédiatement
+    _loadFromLocalCache();
+
+    // 2. Si pas de cache local, charger les données seed
+    if (_countries.isEmpty) {
+      _loadFromSeed();
+      await _saveToLocalCache();
+    }
+
+    _initialized = true;
+
+    // 3. En arrière-plan : synchroniser avec Supabase si disponible
+    if (_remote != null) {
+      _syncWithRemote();
+    }
+  }
+
+  void _loadFromLocalCache() {
     _countries = _local.getCachedCountries();
     _regions = _local.getCachedRegions();
     _languages = _local.getCachedLanguages();
     _islands = _local.getCachedIslands();
     _regionLanguages = _local.getCachedRegionLanguages();
+  }
 
-    // If no cached data, load seed data
-    if (_countries.isEmpty) {
-      _countries = SeedData.countries;
-      _regions = SeedData.regions;
-      _languages = SeedData.languages;
-      _islands = SeedData.islands;
-      _regionLanguages = SeedData.regionLanguages;
+  void _loadFromSeed() {
+    _countries = SeedData.countries;
+    _regions = SeedData.regions;
+    _languages = SeedData.languages;
+    _islands = SeedData.islands;
+    _regionLanguages = SeedData.regionLanguages;
+  }
 
-      // Cache the seed data
-      await _local.cacheCountries(_countries);
-      await _local.cacheRegions(_regions);
-      await _local.cacheLanguages(_languages);
-      await _local.cacheIslands(_islands);
-      await _local.cacheRegionLanguages(_regionLanguages);
+  Future<void> _saveToLocalCache() async {
+    await _local.cacheCountries(_countries);
+    await _local.cacheRegions(_regions);
+    await _local.cacheLanguages(_languages);
+    await _local.cacheIslands(_islands);
+    await _local.cacheRegionLanguages(_regionLanguages);
+  }
+
+  Future<void> _syncWithRemote() async {
+    try {
+      // Vérifier si Supabase a des données
+      final remoteCountries = await _remote!.fetchCountries();
+
+      if (remoteCountries.isNotEmpty) {
+        // Supabase a des données → tirer depuis Supabase
+        _countries = remoteCountries;
+        _regions = await _remote!.fetchRegions();
+        _languages = await _remote!.fetchLanguages();
+        _islands = await _remote!.fetchIslands();
+        _regionLanguages = await _remote!.fetchRegionLanguages();
+
+        // Sauvegarder dans le cache local
+        await _saveToLocalCache();
+      } else {
+        // Supabase est vide → pousser les données locales vers Supabase
+        await _pushToRemote();
+      }
+    } catch (e) {
+      // Pas de connexion ou erreur → garder les données locales
     }
+  }
 
-    // Try syncing with remote if available
+  Future<void> _pushToRemote() async {
+    if (_remote == null) return;
+    try {
+      await _remote!.upsertCountries(_countries);
+      await _remote!.upsertRegions(_regions);
+      await _remote!.upsertLanguages(_languages);
+      await _remote!.upsertIslands(_islands);
+      await _remote!.upsertRegionLanguages(_regionLanguages);
+    } catch (_) {}
+  }
+
+  // Forcer une synchronisation complète
+  Future<void> forceSyncWithRemote() async {
+    if (_remote == null) return;
+    await _syncWithRemote();
+  }
+
+  // Sauvegarder un résultat de quiz
+  Future<void> saveQuizResult(QuizResult result) async {
     if (_remote != null) {
       try {
-        final remoteCountries = await _remote.fetchCountries();
-        if (remoteCountries.isNotEmpty) {
-          _countries = remoteCountries;
-          await _local.cacheCountries(_countries);
-        }
-
-        final remoteRegions = await _remote.fetchRegions();
-        if (remoteRegions.isNotEmpty) {
-          _regions = remoteRegions;
-          await _local.cacheRegions(_regions);
-        }
-
-        final remoteLanguages = await _remote.fetchLanguages();
-        if (remoteLanguages.isNotEmpty) {
-          _languages = remoteLanguages;
-          await _local.cacheLanguages(_languages);
-        }
-
-        final remoteIslands = await _remote.fetchIslands();
-        if (remoteIslands.isNotEmpty) {
-          _islands = remoteIslands;
-          await _local.cacheIslands(_islands);
-        }
-
-        final remoteRegionLangs = await _remote.fetchRegionLanguages();
-        if (remoteRegionLangs.isNotEmpty) {
-          _regionLanguages = remoteRegionLangs;
-          await _local.cacheRegionLanguages(_regionLanguages);
-        }
+        await _remote!.saveQuizResult(result);
       } catch (_) {}
     }
   }
