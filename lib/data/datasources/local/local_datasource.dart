@@ -115,4 +115,20 @@ class LocalDataSource {
     final List<dynamic> jsonList = json.decode(jsonStr);
     return jsonList.map((e) => RegionLanguage.fromMap(e as Map<String, dynamic>)).toList();
   }
+
+  // Badges
+  static const String _unlockedBadgesKey = 'unlocked_badges';
+
+  Set<String> getUnlockedBadged() {
+    return (_prefs.getStringList(_unlockedBadgesKey) ?? []).toSet();
+  }
+
+  // Alias for providers
+  Set<String> getUnlockedBadges() => getUnlockedBadged();
+
+  Future<void> unlockBadge(String badgeId) async {
+    final badges = getUnlockedBadged();
+    badges.add(badgeId);
+    await _prefs.setStringList(_unlockedBadgesKey, badges.toList());
+  }
 }
